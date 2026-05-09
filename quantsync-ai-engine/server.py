@@ -12,6 +12,7 @@ import grpc
 from concurrent import futures
 import time
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import uuid
 import numpy as np
 import pandas as pd
@@ -38,6 +39,7 @@ print("Importing local models and storage...", flush=True)
 from models.ppo_agent import PPOAgent
 from storage.vector_db import VectorStore
 from storage.supabase_store import SupabaseStore, MarketData
+from health_status import runtime_health
 from runtime_assets import get_required_runtime_assets
 from utils.reasoner import get_reasoner
 
@@ -56,6 +58,7 @@ class SignalService(signal_pb2_grpc.SignalServiceServicer):
         self.vector_db = VectorStore()
         print("[SignalService] Loading SupabaseStore...", flush=True)
         self.db = SupabaseStore()
+        runtime_health.set("db_ready", True)
         print("[SignalService] Loading PPOAgent...", flush=True)
         self.ppo = PPOAgent()
         # Ensure we try to load the model
@@ -271,6 +274,7 @@ class SignalService(signal_pb2_grpc.SignalServiceServicer):
         while time.time() < deadline:
             ready, detail = self.db.has_runtime_market_coverage(min_rows=min_rows)
             if ready:
+                runtime_health.set("runtime_data_ready", True)
                 logger.info(
                     "Runtime market data siap. Crypto=%s Forex=%s",
                     detail["crypto"],
@@ -285,6 +289,7 @@ class SignalService(signal_pb2_grpc.SignalServiceServicer):
             )
             time.sleep(poll_interval)
 
+        runtime_health.set("runtime_data_ready", False)
         return False
 
 
@@ -310,9 +315,40 @@ class SignalService(signal_pb2_grpc.SignalServiceServicer):
 
 def serve():
     print("AI Engine serve() starting...", flush=True)
+
+    def start_health_server():
+        health_port = int(os.getenv("HEALTH_PORT", "8081"))
+
+        class HealthHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path != "/health":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+
+                if runtime_health.is_ready():
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"ok")
+                else:
+                    self.send_response(503)
+                    self.end_headers()
+                    self.wfile.write(b"warming")
+
+            def log_message(self, format, *args):
+                return
+
+        server = ThreadingHTTPServer(("0.0.0.0", health_port), HealthHandler)
+        logger.info("Health server running on port %s", health_port)
+        server.serve_forever()
+
     # Start background ingestion worker
     import threading
     from main import start_worker
+
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
+
     print("[INIT] Starting ingestion worker thread...", flush=True)
     worker_thread = threading.Thread(target=start_worker, daemon=True)
 
@@ -347,10 +383,12 @@ def serve():
         )
         
         server.add_secure_port('[::]:50051', credentials)
+        runtime_health.set("grpc_ready", True)
         logger.info("✅ QuantSync AI Engine Server started on port 50051 with mTLS")
     except Exception as e:
         logger.error(f"Failed to start server with mTLS: {e}. Falling back to insecure for development.")
         server.add_insecure_port('[::]:50051')
+        runtime_health.set("grpc_ready", True)
 
     server.start()
     server.wait_for_termination()

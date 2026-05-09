@@ -18,12 +18,12 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "wss://localhost:8443/ws?token={{jwt_token}}",
-							"protocol": "wss",
+							"raw": "ws://localhost:8080/ws?token={{jwt_token}}",
+							"protocol": "ws",
 							"host": [
 								"localhost"
 							],
-							"port": "8443",
+							"port": "8080",
 							"path": [
 								"ws"
 							],

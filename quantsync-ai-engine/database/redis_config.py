@@ -23,36 +23,31 @@ class RedisConfig:
             )
 
             try:
-                # if is_docker:
-                #     # Instruction: Docker -> use redis localhost (mapping host or internal)
-                #     logger.info(
-                #         "🐳 [Redis] Docker mode detected, using localhost as requested"
-                #     )
-                #     cls._client = redis.Redis(
-                #         host="localhost",
-                #         port=6379,
-                #         decode_responses=True,
-                #         socket_connect_timeout=5,
-                #     )
-                # else:
-                # Instruction: Local -> use Redis Cloud (Upstash)
-                # Try REDIS_URL first, then REDIS_CLOUD_URL
+                # Try REDIS_URL first so cloud and docker URL forms are both supported.
                 redis_url = os.getenv("REDIS_URL")
 
                 if redis_url:
                     logger.info(
-                        f"☁️ [Redis] Local mode detected, using Redis Cloud ({'Upstash' if 'upstash' in redis_url else 'External'})"
+                        f"[Redis] Using URL-based connection ({'Upstash' if 'upstash' in redis_url else 'External'})"
                     )
                     cls._client = redis.Redis.from_url(
                         redis_url, decode_responses=True, socket_connect_timeout=5
                     )
                 else:
-                    logger.warning(
-                        "⚠️ [Redis] No Cloud URL found, fallback ke localhost"
-                    )
+                    redis_host = os.getenv("REDIS_HOST")
+                    redis_port = int(os.getenv("REDIS_PORT", 6379))
+                    if is_docker and redis_host:
+                        logger.info(
+                            f"[Redis] Docker mode detected, using {redis_host}:{redis_port}"
+                        )
+                    else:
+                        redis_host = redis_host or "localhost"
+                        logger.warning(
+                            f"[Redis] REDIS_URL tidak ada, fallback ke {redis_host}:{redis_port}"
+                        )
                     cls._client = redis.Redis(
-                        host="localhost",
-                        port=6379,
+                        host=redis_host,
+                        port=redis_port,
                         decode_responses=True,
                         socket_connect_timeout=5,
                     )

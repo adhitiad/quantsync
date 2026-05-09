@@ -103,3 +103,10 @@ func LoadConfigsFromDB() {
 
 	log.Printf("[Config] Berhasil memuat %d konfigurasi dari Supabase ke Redis", count)
 }
+
+func PingSupabase(ctx context.Context) error {
+	if SQL == nil {
+		return sql.ErrConnDone
+	}
+	return SQL.PingContext(ctx)
+}

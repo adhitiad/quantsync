@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/quantsync/quantsync-gateway/internal/database"
@@ -20,11 +21,16 @@ import (
 )
 
 type SignalClient struct {
-	hub *ws.Hub
+	hub       *ws.Hub
+	connected atomic.Bool
 }
 
 func NewSignalClient(hub *ws.Hub) *SignalClient {
 	return &SignalClient{hub: hub}
+}
+
+func (s *SignalClient) IsConnected() bool {
+	return s.connected.Load()
 }
 
 func loadTLSCredentials() (credentials.TransportCredentials, error) {
@@ -73,14 +79,16 @@ func loadTLSCredentials() (credentials.TransportCredentials, error) {
 
 func (s *SignalClient) StartStreaming(address string) {
 	for {
+		s.connected.Store(false)
+
 		tt := utils.GetTripleTime()
-		logHeader := fmt.Sprintf("[JKT: %s | NY: %s | LDN: %s]", 
-			tt.Jakarta.Format("15:04"), 
-			tt.NewYork.Format("15:04"), 
+		logHeader := fmt.Sprintf("[JKT: %s | NY: %s | LDN: %s]",
+			tt.Jakarta.Format("15:04"),
+			tt.NewYork.Format("15:04"),
 			tt.London.Format("15:04"))
 
 		log.Printf("%s Connecting to AI Engine gRPC at %s (mTLS)...", logHeader, address)
-		
+
 		tlsCreds, err := loadTLSCredentials()
 		if err != nil {
 			log.Printf("%s Fatal: Gagal memuat mTLS certs: %v", logHeader, err)
@@ -107,6 +115,7 @@ func (s *SignalClient) StartStreaming(address string) {
 		}
 
 		log.Printf("%s Successfully connected to AI Engine signal stream.", logHeader)
+		s.connected.Store(true)
 
 		for {
 			signal, err := stream.Recv()
@@ -131,12 +140,13 @@ func (s *SignalClient) StartStreaming(address string) {
 			// Publish to Redis for Notifier Worker
 			payload, _ := json.Marshal(signal)
 			database.RedisClient.Publish(context.Background(), "signal_events", payload)
-			
+
 			tt_rx := utils.GetTripleTime()
-			log.Printf("[JKT: %s] Received signal: %s %s @ %.5f (Winrate: %.1f%%)", 
+			log.Printf("[JKT: %s] Received signal: %s %s @ %.5f (Winrate: %.1f%%)",
 				tt_rx.Jakarta.Format("15:04:05"), signal.Asset, signal.TypeSignal, signal.Price, signal.WinratePct)
 		}
 
+		s.connected.Store(false)
 		conn.Close()
 		time.Sleep(2 * time.Second)
 	}

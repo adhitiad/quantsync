@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/quantsync/quantsync-gateway/internal/apidocs"
 	"github.com/quantsync/quantsync-gateway/internal/auth"
 	"github.com/quantsync/quantsync-gateway/internal/database"
 	"github.com/quantsync/quantsync-gateway/internal/grpc"
@@ -37,7 +40,12 @@ func main() {
 
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
-		redisURL = "redis://localhost:6379" // Default fallback
+		redisAddr := os.Getenv("REDIS_ADDR")
+		if redisAddr != "" {
+			redisURL = "redis://" + redisAddr
+		} else {
+			redisURL = "redis://localhost:6379" // Default fallback
+		}
 	}
 	database.InitRedis(redisURL)
 
@@ -51,16 +59,40 @@ func main() {
 	go notifier.StartNotifierWorker()
 
 	// 5. Start gRPC Client Stream Listener
-	grpcAddr := "localhost:50051"
+	grpcAddr := os.Getenv("AI_ENGINE_ADDR")
+	if grpcAddr == "" {
+		grpcAddr = "localhost:50051"
+	}
 	signalClient := grpc.NewSignalClient(hub)
 	go signalClient.StartStreaming(grpcAddr)
 
-	// 5. Setup WebSocket Server (HANYA WebSocket, NO REST API)
+	// 5. Setup HTTP endpoints
+	apidocs.Register(http.DefaultServeMux)
+
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		dbErr := database.PingSupabase(ctx)
+		redisErr := database.PingRedis(ctx)
+		streamConnected := signalClient.IsConnected()
+
+		if dbErr != nil || redisErr != nil || !streamConnected {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("unhealthy"))
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
+	// 6. Setup WebSocket Server (HANYA WebSocket, NO REST API)
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		ws.ServeWs(hub, w, r)
 	})
 
-	// 6. Start HTTP/WSS Server
+	// 7. Start HTTP/WSS Server
 	port := os.Getenv("WSS_PORT")
 	if port == "" {
 		port = "8443" // Default fallback sesuai arsitektur lokal

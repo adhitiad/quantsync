@@ -1,74 +1,85 @@
 # QuantSync Testing Guide
 
-Dokumen ini menjelaskan cara melakukan pengujian (testing) pada sistem QuantSync menggunakan Postman.
+Dokumen ini menjelaskan jalur testing yang sesuai dengan runtime sekarang.
 
-## 1. Pengujian WebSocket (WSS)
+## 1. Sebelum Testing
 
-Sistem QuantSync menggunakan WebSocket Secure (WSS) untuk streaming sinyal real-time.
+Pastikan stack sudah sehat:
 
-### Langkah-langkah:
-1. **Import Collection:**
-   - Buka aplikasi Postman.
-   - Klik tombol **Import** di pojok kiri atas.
-   - Pilih file `quantsync_postman_collection.json` dari root directory proyek ini.
-2. **Konfigurasi Variabel:**
-   - Setelah di-import, klik pada tab **Variables** di level collection.
-   - Masukkan token JWT yang valid ke kolom `Current Value` pada variabel `jwt_token`.
-3. **Melakukan Koneksi:**
-   - Pilih request **WSS Signal Stream**.
-   - Pastikan URL mengarah ke `wss://localhost:8443/ws?token={{jwt_token}}`.
-   - Klik **Connect**.
-   - Jika berhasil, Anda akan melihat status `Connected` dan mulai menerima pesan `new_signal` saat ada aktivitas di AI Engine.
+1. Jalankan `docker compose up -d --build`
+2. Cek `docker compose ps`
+3. Pastikan `quantsync-ai-engine` dan `quantsync-gateway` sudah `healthy`
+4. Cek `http://localhost:8080/api/docs`
 
----
+## 2. Pengujian WebSocket Dengan Postman
 
-## 2. Pengujian gRPC (Python AI Engine Simulator)
+QuantSync mendistribusikan sinyal lewat WebSocket pada gateway.
 
-Developer dapat menggunakan Postman untuk mensimulasikan Python AI Engine yang mengirimkan sinyal ke Go Gateway via gRPC.
+### Langkah-langkah
 
-### Langkah-langkah:
-1. **Buat Request gRPC Baru:**
-   - Di Postman, klik **New** -> **gRPC Request**.
-2. **Masukkan URL Server:**
-   - Masukkan `localhost:50051`.
-3. **Import Protobuf Definition:**
-   - Klik tab **Service Definition**.
-   - Pilih **Import a .proto file**.
-   - Cari dan pilih file `proto/signal.proto`.
-   - Postman akan memuat service `quantsync.SignalService`.
-4. **Pilih Method:**
-   - Pilih method `PushSignal` dari dropdown.
-5. **Konfigurasi TLS (mTLS):**
-   - Karena Gateway menggunakan mTLS, klik tab **Settings** pada request.
-   - Aktifkan **Enable SSL/TLS**.
-   - Di bagian **Certificates**, tambahkan sertifikat client:
-     - **CRT file:** `certs/client.crt`
-     - **Key file:** `certs/client.key`
-6. **Kirim Payload Mock:**
-   - Masukkan JSON payload berikut di tab **Message**:
-     ```json
-     {
-       "id_signal": "mock-sig-001",
-       "asset": "BTC/USDT",
-       "type_signal": "Long",
-       "type_action": "Market",
-       "action": "BUY",
-       "price": 64000.50,
-       "tp1": 65000.00,
-       "tp2": 66000.00,
-       "sl1": 63000.00,
-       "sl2": 62500.00,
-       "probability_pct": 88.5,
-       "winrate_pct": 75.2,
-       "reason": "Simulated signal from Postman for integration testing.",
-       "timestamp_utc": "2026-05-06T06:40:00Z"
-     }
-     ```
-   - Klik **Invoke**.
-   - Gateway akan menerima sinyal ini dan mem-broadcast-nya ke semua klien WebSocket yang terkoneksi.
+1. Import file `quantsync_postman_collection.json`
+2. Isi variable `jwt_token`
+3. Buka request `WSS Signal Stream`
+4. Ubah URL menjadi `ws://localhost:8080/ws?token={{jwt_token}}`
+5. Klik `Connect`
+6. Setelah connected, kirim heartbeat:
 
----
+```json
+{"type":"ping"}
+```
 
-## 3. Troubleshooting
-- **Handshake Error:** Pastikan sertifikat mTLS sudah di-generate (`scripts/gen_certs.sh`) dan di-mount dengan benar di Docker.
-- **Unauthorized (401):** Periksa kembali apakah `JWT_SECRET` di database cocok dengan token yang Anda gunakan di Postman.
+Kalau runtime sudah hangat dan sinyal tersedia, kamu akan menerima event `new_signal`.
+
+## 3. Pengujian gRPC Ke AI Engine
+
+Gunakan ini untuk mengetes AI engine secara langsung, bukan untuk mensimulasikan gateway lama.
+
+### Langkah-langkah
+
+1. Buat request gRPC baru di Postman
+2. Target server: `localhost:50051`
+3. Import `proto/signal.proto`
+4. Pilih service `signal.SignalService`
+5. Pilih salah satu method:
+
+- `GetTradingSignal`
+- `StreamSignals`
+
+6. Aktifkan TLS/mTLS dan lampirkan:
+
+- `certs/client.crt`
+- `certs/client.key`
+
+7. Untuk request tunggal, pakai payload contoh:
+
+```json
+{
+  "asset": "BTC/USDT",
+  "category": "crypto"
+}
+```
+
+8. Untuk stream, gunakan:
+
+```json
+{
+  "asset": "ALL",
+  "category": ""
+}
+```
+
+## 4. Pengujian Docs
+
+Endpoint docs runtime:
+
+- `http://localhost:8080/api/docs`
+- `http://localhost:8080/api/docs/asyncapi.yaml`
+- `http://localhost:8080/api/docs/postman.json`
+- `http://localhost:8080/api/docs/markdown`
+
+## 5. Troubleshooting
+
+- `401 Unauthorized`: token JWT salah atau tidak valid
+- `429 Rate limit exceeded`: plan user kena limiter
+- AI engine lama `starting`: market data `crypto` atau `forex` belum cukup
+- gRPC TLS error: cek isi folder `certs/`

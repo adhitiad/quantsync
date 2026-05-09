@@ -1,0 +1,88 @@
+{
+  "info": {
+    "_postman_id": "c1f2e3d4-b5a6-4c7d-8e9f-0a1b2c3d4e5f",
+    "name": "QuantSync API Testing Suite",
+    "description": "Collection for testing QuantSync WebSocket (WSS) and gRPC protocols. REST API is not supported.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "WebSocket Stream",
+      "item": [
+        {
+          "name": "WSS Signal Stream",
+          "protocolProfileBehavior": {
+            "disabledSystemHeaders": {}
+          },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "ws://localhost:8080/ws?token={{jwt_token}}",
+              "protocol": "ws",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "ws"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}"
+                }
+              ]
+            },
+            "description": "Connect to real-time signal stream via WebSocket. Requires a valid JWT token."
+          },
+          "response": []
+        },
+        {
+          "name": "Heartbeat Ping",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"type\": \"ping\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": ""
+            },
+            "description": "Send this JSON payload within the WebSocket connection every 30 seconds."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "jwt_token",
+      "value": "your_test_token_here",
+      "type": "string"
+    }
+  ]
+}

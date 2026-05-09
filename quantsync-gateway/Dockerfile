@@ -23,7 +23,8 @@ FROM alpine:latest
 WORKDIR /app
 
 # Create non-root user
-RUN adduser -D -g '' appuser
+RUN apk add --no-cache ca-certificates && \
+    adduser -D -g '' appuser
 
 COPY --from=builder /app/main .
 

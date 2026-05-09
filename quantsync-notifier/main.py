@@ -10,9 +10,13 @@ import time
 
 class NotifierWorker:
     def __init__(self):
+        self.redis_url = os.getenv("REDIS_URL", "")
         self.redis_host = os.getenv("REDIS_HOST", "redis")
         self.redis_port = int(os.getenv("REDIS_PORT", 6379))
-        self.r = redis.Redis(host=self.redis_host, port=self.redis_port, decode_responses=True)
+        if self.redis_url:
+            self.r = redis.Redis.from_url(self.redis_url, decode_responses=True)
+        else:
+            self.r = redis.Redis(host=self.redis_host, port=self.redis_port, decode_responses=True)
         
         # Supabase setup for configs
         self.database_url = self._normalize_sqlalchemy_dsn(os.getenv("DATABASE_URL", ""))

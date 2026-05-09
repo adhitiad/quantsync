@@ -44,10 +44,7 @@ USER appuser
 # gRPC (Standard) and WebSocket (Secure/Custom) ports
 EXPOSE 50051
 EXPOSE 8443
-
-# Healthcheck to ensure the gRPC server is responding (requires grpc_health_probe in production, or simple curl/python check)
-# HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-#     CMD python -c "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.connect(('localhost', 50051))"
+EXPOSE 8081
 
 # Entrypoint: Launch the AI Engine gRPC Gateway
 CMD ["python", "server.py"]

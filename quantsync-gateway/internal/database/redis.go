@@ -32,3 +32,10 @@ func InitRedis(urlStr string) *redis.Client {
 	log.Printf("✅ Connected to Redis successfully (%s)", opt.Addr)
 	return RedisClient
 }
+
+func PingRedis(ctx context.Context) error {
+	if RedisClient == nil {
+		return redis.ErrClosed
+	}
+	return RedisClient.Ping(ctx).Err()
+}
