@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package signal;
+
+option go_package = "github.com/quantsync/quantsync-gateway/proto/signal";
+
+service SignalService {
+  rpc GetTradingSignal (SignalRequest) returns (SignalResponse);
+  rpc StreamSignals (SignalRequest) returns (stream SignalResponse);
+}
+
+message SignalRequest {
+  string asset = 1;
+  string category = 2; // "crypto" or "forex"
+}
+
+message SignalResponse {
+  string id_signal = 1;
+  int32 no = 2;
+  string asset = 3;
+  double price = 4;
+  string action = 5; // "buy" or "sell"
+  string type_action = 6; // "limit/stop/market/hold"
+  string type_signal = 7; // "long" or "short"
+  double tp1 = 8;
+  double tp2 = 9;
+  double sl1 = 10;
+  double sl2 = 11;
+  double probability_pct = 12;
+  double winrate_pct = 13;
+  string reason = 14;
+  string timestamp = 15;
+}

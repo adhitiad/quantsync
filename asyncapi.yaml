@@ -1,0 +1,94 @@
+asyncapi: 3.0.0
+info:
+  title: QuantSync Client Stream API
+  version: 1.0.0
+  description: Real-time WebSocket connection for receiving AI Trading Signals. REST APIs are strictly disabled.
+servers:
+  local:
+    host: localhost:8443
+    protocol: wss
+    description: Local testing server
+    security:
+      - $ref: '#/components/securitySchemes/jwtToken'
+channels:
+  ws:
+    address: /ws
+    messages:
+      ping:
+        $ref: '#/components/messages/PingMessage'
+      new_signal:
+        $ref: '#/components/messages/SignalMessage'
+operations:
+  receiveSignals:
+    action: receive
+    channel:
+      $ref: '#/channels/ws'
+    messages:
+      - $ref: '#/components/messages/SignalMessage'
+  sendPing:
+    action: send
+    channel:
+      $ref: '#/channels/ws'
+    messages:
+      - $ref: '#/components/messages/PingMessage'
+
+components:
+  securitySchemes:
+    jwtToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token JWT wajib dikirim via query parameter `?token=` saat handshake WSS.
+  messages:
+    PingMessage:
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            const: ping
+    SignalMessage:
+      payload:
+        type: object
+        properties:
+          event:
+            type: string
+            const: new_signal
+          data:
+            $ref: '#/components/schemas/SignalData'
+  schemas:
+    SignalData:
+      type: object
+      properties:
+        id_signal: { type: string }
+        asset: { type: string }
+        action: { type: string }
+        order_type: { type: string }
+        signal_type: { type: string }
+        entry_price: { type: number }
+        take_profit:
+          type: object
+          properties:
+            tp1: { type: number }
+            tp2: { type: number }
+        stop_loss:
+          type: object
+          properties:
+            sl1: { type: number }
+            sl2: { type: number }
+        metrics:
+          type: object
+          properties:
+            probability: { type: number }
+            winrate: { type: number }
+        analysis:
+          type: object
+          properties:
+            reason: { type: string }
+        timestamps:
+          type: object
+          properties:
+            utc: { type: string, format: date-time }
+            wib: { type: string }
+            ny: { type: string }
+            london: { type: string }

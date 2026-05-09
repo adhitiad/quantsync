@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  mariadb:
+    image: mariadb:10.5
+    environment:
+      - MYSQL_ROOT_PASSWORD=postal_root_pwd
+    volumes:
+      - mariadb_data:/var/lib/mysql
+
+  rabbitmq:
+    image: rabbitmq:3.8-management-alpine
+    environment:
+      - RABBITMQ_DEFAULT_USER=postal
+      - RABBITMQ_DEFAULT_PASS=postal_rabbit_pwd
+
+  postal:
+    image: ghcr.io/postalserver/postal:latest
+    ports:
+      - "25:25"
+      - "587:587"
+      - "443:443"
+    volumes:
+      - ./config:/config
+    depends_on:
+      - mariadb
+      - rabbitmq
+    environment:
+      - POSTAL_CONFIG_FILE=/config/postal.yml
+
+volumes:
+  mariadb_data:

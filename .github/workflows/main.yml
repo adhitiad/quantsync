@@ -1,0 +1,87 @@
+name: QuantSync Robust DevOps Pipeline
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  lint-and-check:
+    name: "Linting & Dependency Check (Python 3.13)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black
+          pip install -r quantsync-ai-engine/requirements.txt
+          
+      - name: Lint with flake8
+        run: |
+          # stop the build if there are Python syntax errors or undefined names
+          flake8 quantsync-ai-engine --count --select=E9,F63,F7,F82 --show-source --statistics
+          # exit-zero treats all errors as warnings
+          flake8 quantsync-ai-engine --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          
+      - name: Check formatting with black
+        run: black --check quantsync-ai-engine
+
+  test-ai-engine:
+    name: "AI Engine Unit Tests"
+    needs: lint-and-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r quantsync-ai-engine/requirements.txt
+      - name: Run Unit Tests
+        run: |
+          cd quantsync-ai-engine
+          python -m unittest discover -s tests -p "test_*.py"
+
+  docker-build:
+    name: "Docker Metadata & Build"
+    needs: test-ai-engine
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            quantsync/ai-engine
+            quantsync/gateway
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,format=short
+            
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Build AI Engine
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: quantsync-ai-engine/Dockerfile
+          push: false # Set to true when registry is configured
+          tags: ${{ steps:meta.outputs.tags }}
+          labels: ${{ steps:meta.outputs.labels }}

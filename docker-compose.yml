@@ -1,0 +1,52 @@
+version: "3.8"
+
+services:
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    restart: always
+
+  quantsync-ai-engine:
+    build:
+      context: .
+      dockerfile: quantsync-ai-engine/Dockerfile
+    ports:
+      - "50051:50051"
+    environment:
+      - IS_DOCKER=true
+      - REDIS_HOST=redis
+    volumes:
+      - ./certs:/app/certs:ro
+    depends_on:
+      - redis
+
+  quantsync-gateway:
+    build:
+      context: .
+      dockerfile: quantsync-gateway/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - IS_DOCKER=true
+      - BOOTSTRAP_TIDB_DSN=root@tcp(tidb:4000)/quantsync?charset=utf8mb4&parseTime=True&loc=Local
+      - REDIS_ADDR=redis:6379
+      - AI_ENGINE_ADDR=quantsync-ai-engine:50051
+    volumes:
+      - ./certs:/app/certs:ro
+    depends_on:
+      - redis
+      - quantsync-ai-engine
+
+  quantsync-notifier:
+    build:
+      context: .
+      dockerfile: quantsync-notifier/Dockerfile
+    environment:
+      - IS_DOCKER=true
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+
+volumes:
+  tidb_data:
