@@ -19,11 +19,11 @@ func main() {
 		log.Println("⚠️  Warning: No .env file found or error loading it. Using system environment variables.")
 	}
 
-	dsn := os.Getenv("TIDB_DSN")
+	dsn := os.Getenv("DATABASE_URL")
 	if dsn != "" {
 		log.Printf("✅ Environment loaded. DSN length: %d", len(dsn))
 	} else {
-		log.Println("❌ Environment NOT loaded. TIDB_DSN is empty!")
+		log.Println("❌ Environment NOT loaded. DATABASE_URL is empty!")
 	}
 	log.Println("Starting AI Trading Signal Hub Backend (Gateway)...")
 
@@ -33,14 +33,14 @@ func main() {
 	}
 
 	// 2. Bootstrap Connections
-	database.InitTiDB()
-	
+	database.InitSupabase()
+
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
 		redisURL = "redis://localhost:6379" // Default fallback
 	}
 	database.InitRedis(redisURL)
-	
+
 	database.LoadConfigsFromDB()
 
 	// 3. Setup WebSocket Hub

@@ -37,7 +37,8 @@ print("Importing local models and storage...", flush=True)
 # Real models and utilities
 from models.ppo_agent import PPOAgent
 from storage.vector_db import VectorStore
-from storage.tidb_store import TiDBStore, MarketData
+from storage.supabase_store import SupabaseStore, MarketData
+from runtime_assets import get_required_runtime_assets
 from utils.reasoner import get_reasoner
 
 print("Importing proto files...", flush=True)
@@ -53,8 +54,8 @@ class SignalService(signal_pb2_grpc.SignalServiceServicer):
         print("[SignalService] Initializing components...", flush=True)
         print("[SignalService] Loading VectorStore...", flush=True)
         self.vector_db = VectorStore()
-        print("[SignalService] Loading TiDBStore...", flush=True)
-        self.tidb = TiDBStore()
+        print("[SignalService] Loading SupabaseStore...", flush=True)
+        self.db = SupabaseStore()
         print("[SignalService] Loading PPOAgent...", flush=True)
         self.ppo = PPOAgent()
         # Ensure we try to load the model
@@ -85,13 +86,13 @@ class SignalService(signal_pb2_grpc.SignalServiceServicer):
 
     def _prepare_observation(self, asset):
         """
-        Fetches real data from TiDB and prepares the 15-feature observation vector.
+        Fetches real data from Supabase and prepares the 15-feature observation vector.
         """
         from sqlalchemy import text
         query = text("SELECT open, high, low, close, volume FROM market_data WHERE asset = :asset ORDER BY timestamp DESC LIMIT 50")
         
         try:
-            with self.tidb.Session() as session:
+            with self.db.Session() as session:
                 result = session.execute(query, {"asset": asset}).fetchall()
                 if not result or len(result) < 20: 
                     return None, None
@@ -157,17 +158,23 @@ class SignalService(signal_pb2_grpc.SignalServiceServicer):
 
     def _get_all_assets(self):
         """
-        Fetches unique assets from the market_data table.
+        Fetches unique assets from the market_data table and ensures
+        both required crypto and forex assets are always present at runtime.
         """
         from sqlalchemy import select, func
         try:
-            with self.tidb.Session() as session:
+            with self.db.Session() as session:
                 query = select(MarketData.asset).distinct()
                 results = session.execute(query).fetchall()
-                return [r[0] for r in results]
+                db_assets = [r[0] for r in results]
+                merged_assets = []
+                for asset in get_required_runtime_assets() + db_assets:
+                    if asset not in merged_assets:
+                        merged_assets.append(asset)
+                return merged_assets
         except Exception as e:
             logger.error(f"Error fetching assets: {e}")
-            return ["BTC/USDT", "ETH/USDT", "EUR/USD", "GBP/USD"]
+            return get_required_runtime_assets()
 
     def GetTradingSignal(self, request, context):
         """
@@ -183,12 +190,20 @@ class SignalService(signal_pb2_grpc.SignalServiceServicer):
         if obs is None:
             return signal_pb2.SignalResponse(
                 asset=asset,
-                reason=f"Insufficent market data for {asset} in TiDB."
+                action="hold",
+                type_action="wait",
+                type_signal="neutral",
+                probability_pct=0.0,
+                winrate_pct=0.0,
+                reason=f"Insufficent market data for {asset} in Supabase."
             )
 
         # 2. PPO Prediction with Memory Optimization (Fase 22)
         with torch.no_grad():
             ppo_result = self.ppo.predict_signal(obs, current_price)
+
+        is_crypto = "/" in asset and ("USDT" in asset or "USDC" in asset)
+        suppressed_crypto_sell = is_crypto and ppo_result["action"] == "sell"
         
         # 3. RAG Synthesis & LLM Reasoner
         probability = ppo_result.get("probability", 0.0)
@@ -196,7 +211,7 @@ class SignalService(signal_pb2_grpc.SignalServiceServicer):
         winrate = float(np.clip(probability * 0.85 + np.random.uniform(-3, 3), 40, 95))
         
         reason = "Market conditions stable. Waiting for optimal entry point."
-        if ppo_result["action"] != "hold":
+        if ppo_result["action"] != "hold" and not suppressed_crypto_sell:
             context_docs = self.vector_db.query_sentiment(asset)
             reason = self.reasoner.generate_reason(
                 asset=asset,
@@ -208,18 +223,30 @@ class SignalService(signal_pb2_grpc.SignalServiceServicer):
             
             # Forced Garbage Collection after heavy LLM/RAG process (Fase 22)
             gc.collect()
+        elif suppressed_crypto_sell:
+            reason = "Crypto spot hanya mengizinkan sinyal buy. Setup sell disuppress menjadi hold."
 
         # Enforce rules from rules.md (Fase 2)
-        is_crypto = "/" in asset and ("USDT" in asset or "USDC" in asset)
         final_action = ppo_result["action"]
         final_type = ppo_result["type_signal"]
+        final_probability = probability
+        final_winrate = winrate
+        final_type_action = "market"
 
         if is_crypto:
-            # Crypto Spot: action: "buy" (hardcoded), type_signal: "long" (hardcoded)
-            final_action = "buy"
-            final_type = "long"
-            # If PPO suggested sell, we override to hold or just skip it in StreamSignals
-            # For now, we follow the UI rule that crypto signals shown are always buys.
+            if final_action == "buy":
+                final_type = "long"
+            elif final_action == "sell":
+                final_action = "hold"
+                final_type = "neutral"
+                final_probability = 0.0
+            else:
+                final_type = "neutral"
+
+        if final_action == "hold":
+            final_probability = 0.0
+            final_winrate = 0.0
+            final_type_action = "wait"
         
         return signal_pb2.SignalResponse(
             id_signal=str(uuid.uuid4()),
@@ -227,17 +254,38 @@ class SignalService(signal_pb2_grpc.SignalServiceServicer):
             asset=asset,
             price=current_price,
             action=final_action,
-            type_action="market",
+            type_action=final_type_action,
             type_signal=final_type,
             tp1=ppo_result["tp1"],
             tp2=ppo_result["tp2"],
             sl1=ppo_result["sl1"],
             sl2=ppo_result["sl2"],
-            probability_pct=probability,
-            winrate_pct=winrate,
+            probability_pct=final_probability,
+            winrate_pct=final_winrate,
             reason=reason,
             timestamp=datetime.now(timezone.utc).isoformat()
         )
+
+    def wait_until_runtime_data_ready(self, timeout_seconds=180, min_rows=20, poll_interval=5):
+        deadline = time.time() + timeout_seconds
+        while time.time() < deadline:
+            ready, detail = self.db.has_runtime_market_coverage(min_rows=min_rows)
+            if ready:
+                logger.info(
+                    "Runtime market data siap. Crypto=%s Forex=%s",
+                    detail["crypto"],
+                    detail["forex"],
+                )
+                return True
+
+            logger.info(
+                "Menunggu data runtime wajib. Crypto=%s Forex=%s",
+                detail["crypto"],
+                detail["forex"],
+            )
+            time.sleep(poll_interval)
+
+        return False
 
 
     def StreamSignals(self, request, context):
@@ -274,6 +322,13 @@ def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     print("[INIT] Initializing SignalService (this might take a while)...", flush=True)
     service = SignalService()
+    warmup_timeout = int(os.getenv("RUNTIME_WARMUP_TIMEOUT_SECONDS", "180"))
+    min_rows = int(os.getenv("RUNTIME_WARMUP_MIN_ROWS", "20"))
+    if not service.wait_until_runtime_data_ready(timeout_seconds=warmup_timeout, min_rows=min_rows):
+        logger.warning(
+            "Runtime warmup timeout after %s seconds. Server tetap dinyalakan, tetapi coverage crypto/forex belum penuh.",
+            warmup_timeout,
+        )
     signal_pb2_grpc.add_SignalServiceServicer_to_server(service, server)
     
     # mTLS Configuration (Fase 21)

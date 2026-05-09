@@ -22,7 +22,7 @@ type WhatsAppNotifier struct {
 // NewWhatsAppNotifier initializes the whatsmeow client using SQLite for session storage
 func NewWhatsAppNotifier() *WhatsAppNotifier {
 	// For local testing and stability, we use SQLite for WhatsApp sessions.
-	// TiDB is used for global configs and signals.
+	// Supabase is used for global configs and signals.
 	dbPath := "whatsapp_sessions.db"
 	container, err := sqlstore.New(context.Background(), "sqlite", fmt.Sprintf("file:%s?_foreign_keys=on", dbPath), waLog.Noop)
 	if err != nil {
@@ -76,7 +76,7 @@ func (w *WhatsAppNotifier) Send(target, message string) error {
 
 	// Auto-append server if missing
 	jid := types.NewJID(target, types.DefaultUserServer)
-	
+
 	msg := &waProto.Message{
 		Conversation: proto.String(message),
 	}

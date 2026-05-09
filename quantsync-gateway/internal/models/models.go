@@ -5,11 +5,11 @@ import (
 )
 
 type User struct {
-	ID           int64     `gorm:"primaryKey" json:"id"`
-	Username     string    `gorm:"unique;not null" json:"username"`
-	Email        string    `gorm:"unique;not null" json:"email"`
-	PasswordHash string    `gorm:"not null" json:"-"`
-	Role                string    `gorm:"type:enum('user', 'admin', 'superadmin');default:'user'" json:"role"`
+	ID                  int64     `gorm:"primaryKey" json:"id"`
+	Username            string    `gorm:"unique;not null" json:"username"`
+	Email               string    `gorm:"unique;not null" json:"email"`
+	PasswordHash        string    `gorm:"not null" json:"-"`
+	Role                string    `gorm:"type:varchar(20);default:'user'" json:"role"`
 	TelegramID          string    `json:"telegram_id"`
 	WhatsAppNumber      string    `json:"whatsapp_number"`
 	NotificationEnabled bool      `gorm:"default:false" json:"notification_enabled"`
@@ -18,13 +18,13 @@ type User struct {
 }
 
 type Subscription struct {
-	ID        int64     `gorm:"primaryKey" json:"id"`
-	UserID    int64     `gorm:"not null" json:"user_id"`
-	Plan      string    `gorm:"type:enum('free', 'plus', 'pro', 'enterprise_pay_as_you_go');default:'free'" json:"plan"`
-	Status    string    `gorm:"type:enum('active', 'expired', 'cancelled');default:'active'" json:"status"`
+	ID        int64      `gorm:"primaryKey" json:"id"`
+	UserID    int64      `gorm:"not null" json:"user_id"`
+	Plan      string     `gorm:"type:varchar(40);default:'free'" json:"plan"`
+	Status    string     `gorm:"type:varchar(20);default:'active'" json:"status"`
 	ExpiresAt *time.Time `json:"expires_at"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 type SystemConfig struct {
@@ -34,11 +34,10 @@ type SystemConfig struct {
 	UpdatedAt   time.Time `gorm:"column:updated_at" json:"updated_at"`
 }
 
-
 type SignalHistory struct {
 	IDSignal       string    `gorm:"primaryKey" json:"id_signal"`
 	No             int       `json:"no"`
-	Category       string    `gorm:"type:enum('crypto', 'forex');not null" json:"category"`
+	Category       string    `gorm:"type:varchar(20);not null" json:"category"`
 	Asset          string    `json:"asset"`
 	Price          float64   `json:"price"`
 	Action         string    `json:"action"`
@@ -56,7 +55,7 @@ type SignalHistory struct {
 
 type MarketData struct {
 	ID        int64     `gorm:"primaryKey" json:"id"`
-	Category  string    `gorm:"type:enum('crypto', 'forex');not null" json:"category"`
+	Category  string    `gorm:"type:varchar(20);not null" json:"category"`
 	Asset     string    `gorm:"index:idx_asset_ts;not null" json:"asset"`
 	Open      float64   `json:"open"`
 	High      float64   `json:"high"`

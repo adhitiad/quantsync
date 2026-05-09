@@ -2,5 +2,5 @@ redis==7.4.0
 python-telegram-bot==21.10
 requests==2.32.3
 sqlalchemy==2.0.38
-pymysql==1.1.1
+psycopg[binary]==3.2.9
 yagmail==0.15.293

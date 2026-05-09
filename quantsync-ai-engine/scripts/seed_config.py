@@ -13,7 +13,7 @@ load_dotenv(
 # Tambahkan root folder ke sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from storage.tidb_store import TiDBStore
+from storage.supabase_store import SupabaseStore
 from sqlalchemy import text
 
 logging.basicConfig(level=logging.INFO)
@@ -23,12 +23,11 @@ logger = logging.getLogger(__name__)
 def seed_api_keys():
     """
     Memasukkan API Keys ke database sesuai aturan Zero Hacker (No .env).
-    Karena Redis mati, kita masukkan ke tabel konfigurasi di TiDB.
+    Karena Redis mati, kita masukkan ke tabel konfigurasi di Supabase.
     """
-    db = TiDBStore()
+    db = SupabaseStore()
 
-    # Buat tabel config jika belum ada (opsional, TiDBStore biasanya pakai redis_cfg)
-    # Namun karena redis_cfg fallback ke TiDBStore.get_config, kita pastikan ada di database.
+    # Buat tabel config jika belum ada agar konfigurasi runtime bisa dibaca service lain.
 
     keys = {
         "BINANCE_API_KEY": "oIwwep4aciogDQJeCFWI0MFMQ7Ec62pH8P8nfFOPIyX0Wth2LEVJSH3txF1e0V0K",
@@ -56,9 +55,9 @@ def seed_api_keys():
                 text(
                     """
                 CREATE TABLE system_configs (
-                    `key` VARCHAR(100) PRIMARY KEY,
-                    `value` TEXT NOT NULL,
-                    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                    "key" VARCHAR(100) PRIMARY KEY,
+                    "value" TEXT NOT NULL,
+                    "updated_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                 )
             """
                 )
@@ -68,9 +67,11 @@ def seed_api_keys():
                 conn.execute(
                     text(
                         """
-                    INSERT INTO system_configs (`key`, `value`) 
+                    INSERT INTO system_configs ("key", "value")
                     VALUES (:key, :value)
-                    ON DUPLICATE KEY UPDATE `value` = :value
+                    ON CONFLICT ("key") DO UPDATE SET
+                        "value" = EXCLUDED."value",
+                        "updated_at" = CURRENT_TIMESTAMP
                 """
                     ),
                     {"key": k, "value": v},
@@ -78,7 +79,7 @@ def seed_api_keys():
 
             conn.commit()
             logger.info(
-                "✅ API Keys berhasil diamankan ke TiDB (system_configs table)."
+                "✅ API Keys berhasil diamankan ke Supabase (system_configs table)."
             )
     except Exception as e:
         logger.error(f"❌ Gagal melakukan seeding: {e}")

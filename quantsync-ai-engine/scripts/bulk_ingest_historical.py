@@ -13,7 +13,7 @@ ssl._create_default_https_context = ssl._create_unverified_context
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from storage.tidb_store import TiDBStore
+from storage.supabase_store import SupabaseStore
 from ingestion.crypto_ingestor import CryptoIngestor
 from ingestion.dukascopy_ingestor import DukascopyIngestor
 
@@ -26,7 +26,7 @@ logger = logging.getLogger("Bulk_Ingestor")
 
 async def ingest_crypto_historical(symbol="BTC/USDC", years=7):
     logger.info(f"⏳ [Crypto] Ingesting {symbol} for {years} years...")
-    db = TiDBStore()
+    db = SupabaseStore()
     
     timeframe = "1h"
     limit_per_req = 1000

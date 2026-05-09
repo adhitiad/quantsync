@@ -1,6 +1,7 @@
 import logging
 import time
 from datetime import datetime, timedelta
+import pandas as pd
 import polars as pl
 import ssl
 
@@ -136,7 +137,8 @@ INSTRUMENT_FX_MAJORS_EUR_USD = "EUR/USD"
 INSTRUMENT_FX_MAJORS_GBP_USD = "GBP/USD"
 INSTRUMENT_METALS_XAU_USD = "XAU/USD"
 
-from storage.tidb_store import TiDBStore
+from storage.supabase_store import SupabaseStore
+from runtime_assets import REQUIRED_FOREX_ASSETS
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +148,7 @@ class DukascopyIngestor:
     Mendukung Python 3.13 dan bypass blokir ISP Indonesia.
     """
     def __init__(self):
-        self.db = TiDBStore()
+        self.db = SupabaseStore()
         self.max_retries = 3
         self.retry_delay = 5 
 
@@ -273,11 +275,7 @@ class DukascopyIngestor:
         Main loop untuk sinkronisasi Forex (EUR/USD, GBP/USD) dan Metal (XAU/USD).
         """
         logger.info(f"Memulai sinkronisasi Forex/Metal (Days: {days})...")
-        assets = [
-            {"name": "EUR/USD", "inst": INSTRUMENT_FX_MAJORS_EUR_USD},
-            {"name": "GBP/USD", "inst": INSTRUMENT_FX_MAJORS_GBP_USD},
-            {"name": "XAU/USD", "inst": INSTRUMENT_METALS_XAU_USD}
-        ]
+        assets = REQUIRED_FOREX_ASSETS
 
         success_count = 0
         for asset in assets:

@@ -14,9 +14,11 @@ class NotifierWorker:
         self.redis_port = int(os.getenv("REDIS_PORT", 6379))
         self.r = redis.Redis(host=self.redis_host, port=self.redis_port, decode_responses=True)
         
-        # TiDB Setup for Configs
-        self.tidb_dsn = "mysql+pymysql://root@tidb:4000/quantsync"
-        self.engine = create_engine(self.tidb_dsn)
+        # Supabase setup for configs
+        self.database_url = self._normalize_sqlalchemy_dsn(os.getenv("DATABASE_URL", ""))
+        if not self.database_url:
+            raise RuntimeError("DATABASE_URL untuk Supabase tidak ditemukan.")
+        self.engine = create_engine(self.database_url, pool_pre_ping=True)
         self.Session = sessionmaker(bind=self.engine)
         
         self.configs = self._load_configs()
@@ -25,16 +27,26 @@ class NotifierWorker:
             self.tg_bot = Bot(token=self.configs["TELEGRAM_BOT_TOKEN"])
 
     def _load_configs(self):
-        """Load configs from TiDB as per strict rules."""
+        """Load configs from Supabase as per strict rules."""
         configs = {}
         try:
             with self.Session() as session:
-                result = session.execute(text("SELECT config_key, config_value FROM system_configs")).fetchall()
+                result = session.execute(text('SELECT "key", "value" FROM system_configs')).fetchall()
                 for key, value in result:
                     configs[key] = value
         except Exception as e:
-            print(f"Error loading configs from TiDB: {e}")
+            print(f"Error loading configs from Supabase: {e}")
         return configs
+
+    @staticmethod
+    def _normalize_sqlalchemy_dsn(dsn):
+        if dsn.startswith("postgresql+psycopg://"):
+            return dsn
+        if dsn.startswith("postgresql://"):
+            return dsn.replace("postgresql://", "postgresql+psycopg://", 1)
+        if dsn.startswith("postgres://"):
+            return dsn.replace("postgres://", "postgresql+psycopg://", 1)
+        return dsn
 
     async def send_telegram(self, message):
         chat_id = self.configs.get("TELEGRAM_CHAT_ID")

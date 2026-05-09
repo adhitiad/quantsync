@@ -10,14 +10,14 @@ import (
 
 var ctx = context.Background()
 
-// LoadConfigsToRedis fetches all configurations from TiDB and stores them in Redis.
+// LoadConfigsToRedis fetches all configurations from Supabase and stores them in Redis.
 func LoadConfigsToRedis() {
 	var configs []models.SystemConfig
-	
-	// Fetch from TiDB
+
+	// Fetch from Supabase
 	result := database.DB.Find(&configs)
 	if result.Error != nil {
-		log.Printf("Error fetching configs from TiDB: %v", result.Error)
+		log.Printf("Error fetching configs from Supabase: %v", result.Error)
 		return
 	}
 
@@ -34,6 +34,10 @@ func LoadConfigsToRedis() {
 
 // GetConfig retrieves a config value from Redis.
 func GetConfig(key string) string {
+	if database.RedisClient == nil {
+		return ""
+	}
+
 	val, err := database.RedisClient.Get(ctx, "config:"+key).Result()
 	if err != nil {
 		// Fallback or handle error

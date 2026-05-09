@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/quantsync/quantsync-gateway/internal/database"
 	"github.com/quantsync/quantsync-gateway/internal/config"
+	"github.com/quantsync/quantsync-gateway/internal/database"
 )
 
 // RateLimiter handles token bucket logic per user using Redis.
@@ -25,17 +25,21 @@ func NewRateLimiter() *RateLimiter {
 // Allow checks if a request is allowed for a given user and plan.
 func (rl *RateLimiter) Allow(userID int64, plan string) (bool, error) {
 	key := fmt.Sprintf("rate_limit:%d", userID)
-	
-	// Get limits from Config (loaded from TiDB to Redis)
+
+	// Get limits from Config (loaded from Supabase to Redis)
 	// Example key: RATE_LIMIT_FREE, RATE_LIMIT_PRO
 	configKey := fmt.Sprintf("RATE_LIMIT_%s", strings.ToUpper(plan))
 	limitStr := config.GetConfig(configKey)
 	if limitStr == "" {
 		limitStr = "10" // Default fallback
 	}
-	
+
 	limit, _ := strconv.Atoi(limitStr)
 	interval := 60 * time.Second // 1 minute interval
+
+	if database.RedisClient == nil {
+		return true, nil
+	}
 
 	// Token Bucket Logic via Lua Script for Atomicity
 	script := `

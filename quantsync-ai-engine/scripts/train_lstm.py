@@ -14,7 +14,7 @@ import joblib
 # Add parent directory to path to import local modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from storage.tidb_store import TiDBStore
+from storage.supabase_store import SupabaseStore
 from models.lstm_model import LSTMPredictor, get_device
 
 # Setup Logging
@@ -42,7 +42,7 @@ def train_lstm(asset="BTC/USDC", category="crypto", years=7):
     logger.info(f"🚀 Memulai training LSTM untuk {asset} ({category}) - Data {years} tahun")
     
     device = get_device()
-    store = TiDBStore()
+    store = SupabaseStore()
     
     # 1. Fetch Data (7 Years)
     # Estimate total rows based on H1 (1 hour) resolution
@@ -50,7 +50,7 @@ def train_lstm(asset="BTC/USDC", category="crypto", years=7):
     # If M1, it would be millions. Let's assume H1/M15 for stability first.
     limit = years * 365 * 24 * 4  # Assume M15 (15 min) -> 4 points per hour
     
-    logger.info(f"📡 Mengambil data historis dari TiDB (Limit: {limit})...")
+    logger.info(f"📡 Mengambil data historis dari Supabase (Limit: {limit})...")
     df_pl = store.get_historical_data(category, asset, limit=limit)
     
     if df_pl.is_empty():

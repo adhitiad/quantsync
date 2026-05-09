@@ -15,13 +15,13 @@ class PPOAgent:
 
     def train(self, df_train=None, total_timesteps=100000):
         if df_train is None:
-            # Fetch from TiDB if no data provided
-            from storage.tidb_store import TiDBStore
-            tidb = TiDBStore()
-            df_train = tidb.get_historical_data("crypto", "BTC/USDT", limit=5000)
+            # Fetch from Supabase if no data provided
+            from storage.supabase_store import SupabaseStore
+            db = SupabaseStore()
+            df_train = db.get_historical_data("crypto", "BTC/USDT", limit=5000)
             
             if df_train.is_empty():
-                print("⚠️ [PPO] No data in TiDB for training. Using dummy data for initialization.")
+                print("[PPO] No data in Supabase for training. Using dummy data for initialization.")
                 # Create dummy data for cold start
                 import polars as pl
                 from datetime import datetime, timedelta

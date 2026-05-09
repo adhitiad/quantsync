@@ -15,7 +15,7 @@ graph TD
     
     AI <== gRPC ==> Gateway[quantsync-gateway]
     
-    Gateway --> TiDB[(TiDB - Primary DB)]
+    Gateway --> Supabase[(Supabase Postgres - Primary DB)]
     Gateway --> Redis[(Redis - Cache/PubSub)]
     
     Gateway <== WebSocket WSS ==> Client[User/Trader]
@@ -92,4 +92,4 @@ Saat sinyal baru dideteksi, server akan mengirimkan payload JSON berikut:
 ```bash
 docker-compose up --build
 ```
-Pastikan port 8080 (Gateway) dan 4000 (TiDB) tersedia di sistem Anda.
+Pastikan port 8080 (Gateway) tersedia dan `DATABASE_URL` Supabase sudah terisi di environment.

@@ -8,7 +8,7 @@ import os
 
 # --- FIX: Tambahkan root folder ke sys.path ---
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from storage.tidb_store import TiDBStore
+from storage.supabase_store import SupabaseStore
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -25,7 +25,7 @@ class CryptoIngestor:
     """
 
     def __init__(self):
-        self.db = TiDBStore()
+        self.db = SupabaseStore()
 
     async def fetch_ohlcv(self, symbol="BTC/USDT", timeframe="1h", limit=100):
         # List bursa: Tokocrypto (Utama untuk ID) -> Binance (Fallback Global)
@@ -46,7 +46,7 @@ class CryptoIngestor:
             "api-gcp.binance.com": "35.186.205.105"
         }
 
-        # Zero Hacker Rule: Ambil API Keys dari TiDB
+        # Zero Hacker Rule: Ambil API Keys dari Supabase
         api_keys = {
             "binance": {
                 "key": self.db.get_config("BINANCE_API_KEY"),
@@ -179,7 +179,7 @@ class CryptoIngestor:
             df = await self.fetch_ohlcv(symbol)
             if df is not None:
                 self.db.save_ohlcv("crypto", symbol, df)
-                logger.info(f"💾 [Storage] Data {symbol} berhasil diamankan ke TiDB.")
+                logger.info(f"💾 [Storage] Data {symbol} berhasil diamankan ke Supabase.")
 
             await asyncio.sleep(2)  # Increased delay to be safer
 
