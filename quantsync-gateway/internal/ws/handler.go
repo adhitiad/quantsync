@@ -14,8 +14,8 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
-		// Izinkan localhost untuk development, sisanya harus domain resmi
-		if origin == "http://localhost:3000" || origin == "https://quantsync.com" {
+		// Izinkan CLI/Postman (Origin kosong), localhost, atau domain produksi
+		if origin == "" || origin == "http://localhost:3000" || origin == "https://quantsync.com" {
 			return true
 		}
 		log.Printf("[SECURITY] Rejected WebSocket Connection from Origin: %s", origin)

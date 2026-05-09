@@ -61,8 +61,11 @@ func main() {
 	})
 
 	// 6. Start HTTP/WSS Server
-	port := "8080"
-	log.Printf("Backend Gateway running on port %s (WS only)", port)
+	port := os.Getenv("WSS_PORT")
+	if port == "" {
+		port = "8443" // Default fallback sesuai arsitektur lokal
+	}
+	log.Printf("✅ Backend Gateway running on port %s (WS only)", port)
 
 	// In production, use ListenAndServeTLS for WSS
 	err := http.ListenAndServe(":"+port, nil)
