@@ -1,9 +1,9 @@
 services:
   redis:
-    image: redis:alpine
+    image: redis:7-alpine
     ports:
       - "6379:6379"
-    restart: always
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -12,8 +12,8 @@ services:
 
   quantsync-ai-engine:
     build:
-      context: .
-      dockerfile: quantsync-ai-engine/Dockerfile
+      context: .                                    # root repo — semua subdir tersedia
+      dockerfile: quantsync-ai-engine/Dockerfile    # FIX: path eksplisit ke Dockerfile
     ports:
       - "50051:50051"
       - "8081:8081"
@@ -22,17 +22,24 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
       - HEALTH_PORT=8081
+      - APP_ENV=${APP_ENV:-production}              # production = enforce mTLS + TLS verify
+      - RUNTIME_WARMUP_TIMEOUT_SECONDS=180
+      - RUNTIME_WARMUP_MIN_ROWS=20
+      - CERTS_DIR=/app/certs
     volumes:
       - ./certs:/app/certs:ro
     depends_on:
       redis:
         condition: service_healthy
+    restart: unless-stopped
     healthcheck:
+      # FIX: /health = liveness (db+grpc siap), TIDAK menunggu data warmup
+      # Sebelumnya: /health = is_ready() → deadlock jika warmup timeout
       test: ["CMD", "curl", "-fsS", "http://localhost:8081/health"]
       interval: 15s
       timeout: 5s
       retries: 20
-      start_period: 20s
+      start_period: 30s    # beri waktu untuk pip import dan DB connect
 
   quantsync-gateway:
     build:
@@ -46,13 +53,17 @@ services:
       - WSS_PORT=8080
       - REDIS_URL=redis://redis:6379
       - AI_ENGINE_ADDR=quantsync-ai-engine:50051
+      - APP_ENV=${APP_ENV:-production}
+      - GRPC_SERVER_NAME=quantsync-ai-engine       # harus match SAN di server.crt
+      - CERTS_DIR=/app/certs
     volumes:
       - ./certs:/app/certs:ro
     depends_on:
       redis:
         condition: service_healthy
       quantsync-ai-engine:
-        condition: service_healthy
+        condition: service_healthy                  # gateway naik setelah AI engine liveness OK
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 15s
@@ -68,6 +79,9 @@ services:
       - IS_DOCKER=true
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
+      - APP_ENV=${APP_ENV:-production}
+      - SMTP_TLS_SKIP_VERIFY=${SMTP_TLS_SKIP_VERIFY:-false}   # FIX: default false
     depends_on:
       redis:
         condition: service_healthy
+    restart: unless-stopped

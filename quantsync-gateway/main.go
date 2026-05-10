@@ -5,79 +5,84 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/quantsync/quantsync-gateway/internal/apidocs"
 	"github.com/quantsync/quantsync-gateway/internal/auth"
 	"github.com/quantsync/quantsync-gateway/internal/database"
-	"github.com/quantsync/quantsync-gateway/internal/grpc"
+	interngrpc "github.com/quantsync/quantsync-gateway/internal/grpc"
 	"github.com/quantsync/quantsync-gateway/internal/notifier"
 	"github.com/quantsync/quantsync-gateway/internal/ws"
 )
 
 func main() {
-	// Load .env file
 	if err := godotenv.Load("../.env"); err != nil {
-		log.Println("⚠️  Warning: No .env file found or error loading it. Using system environment variables.")
+		log.Println("⚠️  No .env file found. Using system environment variables.")
 	}
 
 	dsn := os.Getenv("DATABASE_URL")
-	if dsn != "" {
-		log.Printf("✅ Environment loaded. DSN length: %d", len(dsn))
-	} else {
-		log.Println("❌ Environment NOT loaded. DATABASE_URL is empty!")
+	if dsn == "" {
+		log.Fatal("❌ DATABASE_URL is empty — cannot start without database connection.")
 	}
-	log.Println("Starting AI Trading Signal Hub Backend (Gateway)...")
+	log.Printf("✅ DATABASE_URL loaded (len=%d)", len(dsn))
 
-	// 1. Initialize Security Keys
+	log.Println("Starting QuantSync Gateway...")
+
+	// ─── Root context dengan graceful shutdown ────────────────────────────────
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	defer rootCancel()
+
+	// ─── Init ─────────────────────────────────────────────────────────────────
 	if err := auth.InitKeys(); err != nil {
 		log.Fatalf("Failed to initialize security keys: %v", err)
 	}
 
-	// 2. Bootstrap Connections
 	database.InitSupabase()
 
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
-		redisAddr := os.Getenv("REDIS_ADDR")
-		if redisAddr != "" {
-			redisURL = "redis://" + redisAddr
+		if addr := os.Getenv("REDIS_ADDR"); addr != "" {
+			redisURL = "redis://" + addr
 		} else {
-			redisURL = "redis://localhost:6379" // Default fallback
+			redisURL = "redis://localhost:6379"
 		}
 	}
 	database.InitRedis(redisURL)
-
 	database.LoadConfigsFromDB()
 
-	// 3. Setup WebSocket Hub
+	// ─── WebSocket Hub ────────────────────────────────────────────────────────
 	hub := ws.NewHub()
 	go hub.Run()
 
-	// 4. Start Notifier Worker (Redis Pub/Sub)
+	// ─── Notifier Worker ──────────────────────────────────────────────────────
 	go notifier.StartNotifierWorker()
 
-	// 5. Start gRPC Client Stream Listener
+	// ─── gRPC Signal Stream ───────────────────────────────────────────────────
 	grpcAddr := os.Getenv("AI_ENGINE_ADDR")
 	if grpcAddr == "" {
 		grpcAddr = "localhost:50051"
 	}
-	signalClient := grpc.NewSignalClient(hub)
-	go signalClient.StartStreaming(grpcAddr)
+	signalClient := interngrpc.NewSignalClient(hub)
+	// FIX: pass context agar bisa di-cancel saat shutdown
+	go signalClient.StartStreaming(rootCtx, grpcAddr)
 
-	// 5. Setup HTTP endpoints
-	apidocs.Register(http.DefaultServeMux)
+	// ─── HTTP Endpoints ───────────────────────────────────────────────────────
+	mux := http.NewServeMux()
+	apidocs.Register(mux)
 
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
 		dbErr := database.PingSupabase(ctx)
 		redisErr := database.PingRedis(ctx)
-		streamConnected := signalClient.IsConnected()
+		streamOK := signalClient.IsConnected()
 
-		if dbErr != nil || redisErr != nil || !streamConnected {
+		if dbErr != nil || redisErr != nil || !streamOK {
+			log.Printf("[Health] unhealthy — db=%v redis=%v stream=%v", dbErr, redisErr, streamOK)
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte("unhealthy"))
 			return
@@ -87,21 +92,47 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	// 6. Setup WebSocket Server (HANYA WebSocket, NO REST API)
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		ws.ServeWs(hub, w, r)
 	})
 
-	// 7. Start HTTP/WSS Server
+	// ─── HTTP Server ──────────────────────────────────────────────────────────
 	port := os.Getenv("WSS_PORT")
 	if port == "" {
-		port = "8443" // Default fallback sesuai arsitektur lokal
+		port = "8080"
 	}
-	log.Printf("✅ Backend Gateway running on port %s (WS only)", port)
 
-	// In production, use ListenAndServeTLS for WSS
-	err := http.ListenAndServe(":"+port, nil)
-	if err != nil {
-		log.Fatal("ListenAndServe: ", err)
+	httpServer := &http.Server{
+		Addr:         ":" + port,
+		Handler:      mux,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
+
+	// ─── Graceful Shutdown ────────────────────────────────────────────────────
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		log.Printf("✅ Gateway running on :%s", port)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("ListenAndServe error: %v", err)
+		}
+	}()
+
+	<-quit
+	log.Println("Shutdown signal received. Gracefully stopping...")
+
+	// Cancel root context → stop gRPC stream
+	rootCancel()
+
+	// Shutdown HTTP server dengan 10s deadline
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP server forced shutdown: %v", err)
+	}
+
+	log.Println("Gateway stopped cleanly.")
 }
