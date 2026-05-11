@@ -264,22 +264,23 @@ class SupabaseStore:
         category: str,
         asset: str,
         limit: int = 1000,
-        timeframe: str = "H1",
+        timeframe: str = "H1",   # FIX 3: tambah parameter timeframe
     ):
         """
-        Ambil data historis dari Supabase untuk training AI.
-        Returns: polars DataFrame
+        FIX 3: Filter by timeframe agar training PPO tidak campur resolusi.
+        FIX 4: Gunakan context manager — tidak ada connection leak.
         """
         import polars as pl
 
+        # FIX 4: with self.Session() as session
         with self.Session() as session:
             try:
                 query = (
                     session.query(MarketData)
                     .filter(
-                        MarketData.category == category,
-                        MarketData.asset == asset,
-                        MarketData.timeframe == timeframe,
+                        MarketData.category  == category,
+                        MarketData.asset     == asset,
+                        MarketData.timeframe == timeframe,   # FIX 3
                     )
                     .order_by(MarketData.timestamp.desc())
                     .limit(limit)
@@ -292,17 +293,18 @@ class SupabaseStore:
                 data = [
                     {
                         "timestamp": r.timestamp,
-                        "open": r.open,
-                        "high": r.high,
-                        "low": r.low,
-                        "close": r.close,
-                        "volume": r.volume,
+                        "open":      r.open,
+                        "high":      r.high,
+                        "low":       r.low,
+                        "close":     r.close,
+                        "volume":    r.volume,
                     }
                     for r in reversed(rows)
                 ]
                 return pl.DataFrame(data)
+
             except Exception as e:
-                logger.error(f"[get_historical_data] Error {asset}: {e}")
+                logger.error("[get_historical_data] Error %s/%s: %s", asset, timeframe, e)
                 return pl.DataFrame()
 
     # ─── CONFIG ───────────────────────────────────────────────────────────────

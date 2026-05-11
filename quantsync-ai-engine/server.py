@@ -123,26 +123,37 @@ class SignalService(signal_pb2_grpc.SignalServiceServicer):
         print("[SignalService] Initialization complete.", flush=True)
 
     def _prepare_observation(self, asset: str):
+        """
+        Ambil 50 candle H1 terbaru dari Supabase dan bangun observation vector (15 features).
+
+        FIX 1: _get_temporal_features() dihapus — dead code, 3-feature vs 5-feature mismatch.
+        FIX 2: Query filter WHERE timeframe = 'H1' agar tidak mix resolusi setelah migration.
+        """
         from sqlalchemy import text
+
+        # FIX 2: tambah filter timeframe = 'H1'
         query = text(
             "SELECT open, high, low, close, volume "
-            "FROM market_data WHERE asset = :asset AND timeframe = 'H1' "
+            "FROM market_data "
+            "WHERE asset = :asset AND timeframe = 'H1' "
             "ORDER BY timestamp DESC LIMIT 50"
         )
+
         try:
             with self.db.Session() as session:
                 result = session.execute(query, {"asset": asset}).fetchall()
+
             if not result or len(result) < 20:
                 return None, None
 
             df = pd.DataFrame(result[::-1], columns=["open", "high", "low", "close", "volume"])
             df["rsi"] = RSIIndicator(close=df["close"], window=14).rsi()
             macd = MACD(close=df["close"])
-            df["macd"] = macd.macd()
+            df["macd"]        = macd.macd()
             df["macd_signal"] = macd.macd_signal()
-            df["macd_diff"] = macd.macd_diff()
+            df["macd_diff"]   = macd.macd_diff()
 
-            sentiment_text = self.vector_db.query_sentiment(asset, n_results=1)
+            sentiment_text  = self.vector_db.query_sentiment(asset, n_results=1)
             sentiment_score = 0.5
             for kw in ["bullish", "buy", "up", "growth", "positive", "strong"]:
                 if kw in sentiment_text.lower():
@@ -157,28 +168,31 @@ class SignalService(signal_pb2_grpc.SignalServiceServicer):
 
             base_obs = np.array([
                 latest["open"], latest["high"], latest["low"], latest["close"], latest["volume"],
-                latest["rsi"], latest["macd"], latest["macd_signal"], latest["macd_diff"],
+                latest["rsi"],  latest["macd"], latest["macd_signal"], latest["macd_diff"],
                 latest["sentiment"],
             ], dtype=np.float32)
 
             from zoneinfo import ZoneInfo
-            tz_ny = ZoneInfo("America/New_York")
+            tz_ny     = ZoneInfo("America/New_York")
             tz_london = ZoneInfo("Europe/London")
-            now_utc = datetime.now(timezone.utc)
-            dt_ny = now_utc.astimezone(tz_ny)
+            now_utc   = datetime.now(timezone.utc)
+            dt_ny     = now_utc.astimezone(tz_ny)
             dt_london = now_utc.astimezone(tz_london)
 
-            h_ny = dt_ny.hour + dt_ny.minute / 60.0
-            is_ny_open = 1.0 if 8 <= dt_ny.hour < 17 else 0.0
-            h_london = dt_london.hour + dt_london.minute / 60.0
+            h_ny           = dt_ny.hour     + dt_ny.minute     / 60.0
+            is_ny_open     = 1.0 if 8 <= dt_ny.hour     < 17 else 0.0
+            h_london       = dt_london.hour + dt_london.minute / 60.0
             is_london_open = 1.0 if 8 <= dt_london.hour < 16 else 0.0
-            is_overlap = 1.0 if (is_ny_open and is_london_open) else 0.0
+            is_overlap     = 1.0 if (is_ny_open and is_london_open) else 0.0
 
-            temporal_obs = np.array([h_ny, is_ny_open, h_london, is_london_open, is_overlap], dtype=np.float32)
+            temporal_obs = np.array(
+                [h_ny, is_ny_open, h_london, is_london_open, is_overlap],
+                dtype=np.float32,
+            )
             return np.concatenate([base_obs, temporal_obs]), float(latest["close"])
 
         except Exception as e:
-            logger.error(f"Error preparing observation for {asset}: {e}")
+            logger.error("Error preparing observation for %s: %s", asset, e)
             return None, None
 
     def GetTradingSignal(self, request, context):
