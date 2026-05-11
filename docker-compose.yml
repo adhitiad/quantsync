@@ -26,6 +26,10 @@ services:
       - RUNTIME_WARMUP_TIMEOUT_SECONDS=180
       - RUNTIME_WARMUP_MIN_ROWS=20
       - CERTS_DIR=/app/certs
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+      - MILVUS_URI=${MILVUS_URI}
+      - MILVUS_TOKEN=${MILVUS_TOKEN}
+      - MILVUS_DB_NAME=${MILVUS_DB_NAME}
     volumes:
       - ./certs:/app/certs:ro
     depends_on:
